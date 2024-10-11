@@ -5,7 +5,7 @@
 #include <hamsandwich>
 #include <nvault>
 
-new const VERSION[ ] = "1.0"
+new const VERSION[ ] = "2.0"
 new const TRKCVAR[ ] = "Grab_Y"
 
 #define CLASSNAME "FrostEntity"
@@ -44,6 +44,15 @@ new client_data[33][4]
 #define FROST_G		150
 #define FROST_B		200
 
+enum _: eFlagsAccess {
+	eAccess,
+	eImmunity,
+	eAntiImmunity,
+	eWarn,
+	eWarnR,
+	eName[32]
+};
+
 //Cvar Pointers
 new p_players_only
 new p_throw_force, p_min_dist, p_speed, p_grab_force
@@ -62,7 +71,7 @@ new bool:g_bShowMenu[33], g_Freeze[33], g_immunity[33];
 
 public plugin_init( )
 {
-	register_plugin( "Grab+", VERSION, "Ian Cammarata" )
+	register_plugin( "Grab+", VERSION, "Ian Cammarata & NightMira" )
 	register_cvar( TRKCVAR, VERSION, FCVAR_SERVER )
 	set_cvar_string( TRKCVAR, VERSION )
 	
@@ -85,14 +94,20 @@ public plugin_init( )
 	p_fade = register_cvar( "gp_screen_fade", "0" )
 	p_glow = register_cvar( "gp_glow", "1" )
 	
-	register_clcmd( "amx_grab", "force_grab", ADMIN, "Grab client & teleport to you." )
+	register_clcmd( "amx_grab", "force_grab", _, "Grab client & teleport to you." )
+	register_clcmd( "grab_toggle", "grab_toggle", _, "press once to grab and again to release" )
+	register_clcmd( "+grab", "grab", _, "bind a key to +grab" )
+	/*register_clcmd( "amx_grab", "force_grab", ADMIN, "Grab client & teleport to you." )
 	register_clcmd( "grab_toggle", "grab_toggle", ADMIN, "press once to grab and again to release" )
 	register_clcmd( "+grab", "grab", ADMIN, "bind a key to +grab" )
+	*/
 	register_clcmd( "-grab", "unset_grabbed" )
 	
-	register_clcmd( "+push", "push", ADMIN, "bind a key to +push" )
+	register_clcmd( "+push", "push", _, "bind a key to +push" )
+	//register_clcmd( "+push", "push", ADMIN, "bind a key to +push" )
 	register_clcmd( "-push", "push" )
-	register_clcmd( "+pull", "pull", ADMIN, "bind a key to +pull" )
+	register_clcmd( "+pull", "pull", _, "bind a key to +pull" )
+	//register_clcmd( "+pull", "pull", ADMIN, "bind a key to +pull" )
 	register_clcmd( "-pull", "pull" )
 	
 	register_clcmd( "push", "push2" )
@@ -100,8 +115,11 @@ public plugin_init( )
 	
 	register_clcmd( "drop" ,"throw" )
 	
-	register_clcmd( "igrab_menu" , "igrab_menu", ADMIN_I )
+	register_clcmd( "igrab_menu" , "igrab_menu" )
+	register_clcmd( "Remove_warn" , "SelectPlayer" )
+	/*register_clcmd( "igrab_menu" , "igrab_menu", ADMIN_I )
 	register_clcmd( "Remove_warn" , "SelectPlayer", F_WARN_R )
+	*/
 	
 	g_vault = nvault_open( "warns_save" )
 	
@@ -121,6 +139,8 @@ public plugin_init( )
 
 public plugin_precache()
 {
+	cheack_file_access();
+
 	precache_model("models/frostnova.mdl");
 	
 	precache_sound("player/PL_PAIN2.WAV")
@@ -277,7 +297,8 @@ public grab_toggle( id, level, cid )
 
 public grab(id, level, cid)
 {
-	if(!cmd_access(id, level, cid, 1)) return PLUGIN_HANDLED
+	if(!get_access(id, eAccess)) return PLUGIN_HANDLED;
+	//if(!cmd_access(id, level, cid, 1)) return PLUGIN_HANDLED
 	
 	if (!client_data[id][GRABBED]) client_data[id][GRABBED] = -1
 	screenfade_in(id)
@@ -356,8 +377,9 @@ public unset_grabbed( id )
 public set_grabbed( id, target )
 {
 	client_data[id][GRABBED] = target
-  
-	if( g_immunity[target] && !(get_user_flags(id) & ADMIN_GL) )
+
+	if( g_immunity[target] && !get_access(id, eAntiImmunity) )
+	//if( g_immunity[target] && !(get_user_flags(id) & ADMIN_GL) )
 	{
 		client_print_color(id, print_team_default, "%s ^3Нельзя взять, у игрока иммунитет!", szPrefix);
 	}else{
@@ -397,6 +419,7 @@ public set_grabbed( id, target )
 
 public igrab_menu(id) 
 {
+	if(!get_access(id, eImmunity)) return PLUGIN_HANDLED;
 	new Item[512], menu;
 
 	formatex(Item, charsmax(Item), "\y| \r# \y| \wМеню: \y| \rГраба \y|");
@@ -455,10 +478,12 @@ public grab_menu(id)
 
 		menu = menu_create(Item, "menu_handler");
 		
-		if(get_user_flags(id) & F_WARNS) menu_additem(menu, Item1);
+		if(get_access(id, eWarn)) menu_additem(menu, Item1);
+		//if(get_user_flags(id) & F_WARNS) menu_additem(menu, Item1);
 		else menu_additem(menu, "\dВыдать предупреждение");
 		
-		if(get_user_flags(id) & F_WARN_R) menu_additem(menu, Item2);
+		if(get_access(id, eWarnR)) menu_additem(menu, Item2);
+		//if(get_user_flags(id) & F_WARN_R) menu_additem(menu, Item2);
 		else menu_additem(menu, "\dЗабрать предупреждение^n");
 		
 		menu_additem(menu, "Показать правила");
@@ -499,7 +524,8 @@ public menu_handler(id, menu, item)
 	switch(item) 
 	{
 		case 1: {
-			if( get_user_flags(id) & F_WARNS )
+			if( get_access(id, eWarn) )
+			//if( get_user_flags(id) & F_WARNS )
 			{
 				client_cmd(id, "spk ^"%s^"", ON_MENU)
 				g_warns[iTarget]++
@@ -532,7 +558,8 @@ public menu_handler(id, menu, item)
 			}
 		}
 		case 2: {
-			if( get_user_flags(id) & F_WARN_R )
+			if( get_access(id, eWarnR) )
+			//if( get_user_flags(id) & F_WARN_R )
 			{
 				client_cmd(id, "spk ^"%s^"", SND_TASK)
 				g_warns[iTarget]--
@@ -783,7 +810,8 @@ public clear_no_choke( tskid )
 //Grabs the client and teleports them to the admin
 public force_grab(id, level, cid)
 {
-	if(!cmd_access(id, level, cid, 1)) return PLUGIN_HANDLED
+	if(!get_access(id, eAccess)) return PLUGIN_HANDLED;
+	//if(!cmd_access(id, level, cid, 1)) return PLUGIN_HANDLED
 
 	new arg[33]
 	read_argv(1, arg, 32)
@@ -882,8 +910,10 @@ public client_putinserver(id)
 {
 	LoadDataWarns(id)
 	if(g_warns[id] == MAX_WARNS) g_warns[id] = 0;
-	
-	if(get_user_flags(id) & ADMIN_I) g_immunity[id] = true;
+	cheack_access(id);
+
+	if(get_access(id, eImmunity)) g_immunity[id] = true;
+	//if(get_user_flags(id) & ADMIN_I) g_immunity[id] = true;
 	
 	return PLUGIN_CONTINUE
 }
@@ -951,7 +981,7 @@ public kill_grab( id )
 }
 
 public SelectPlayer(iPlayer){
-	
+	if(!get_access(iPlayer, eWarnR)) return PLUGIN_HANDLED;
 	new Players[32], Players_num
 	get_players(Players, Players_num, "ch") 
 	new players_warns=0;
@@ -1009,6 +1039,99 @@ public Handler_SP(id, menu, item){
 	client_print_color(0, print_team_default, "^1[^4%L^1] ^4%s ^3забрал предупреждение у ^4%s", LANG_PLAYER, "PREFIX", nickname, s_Data);
 	
 	menu_destroy(menu);
+}
+
+
+
+new const PATH_DIR[] = "GrabAccess";
+new const FILE_ACCESS[] = "user.ini";
+
+new Array:g_aAccess;
+new g_aPlayerData[MAX_PLAYERS + 1][eFlagsAccess - 1];
+
+public cheack_file_access() {
+	g_aAccess = ArrayCreate(eFlagsAccess, 0);
+	new sPath[MAX_RESOURCE_PATH_LENGTH];
+	
+	new aAccessData[eFlagsAccess];
+
+	get_localinfo("amxx_configsdir", sPath, charsmax(sPath));
+	formatex(sPath, charsmax(sPath), "%s/%s", sPath, PATH_DIR);
+
+	if(!dir_exists(sPath))
+		mkdir(sPath);
+
+	formatex(sPath, charsmax(sPath), "%s/%s", sPath, FILE_ACCESS);
+
+	if(file_exists(sPath)) {
+		new hFile = fopen(sPath, "rt");
+		if(hFile) {
+			new iLine = 0;
+			new sBuffer[128];
+			new sNameData[MAX_NAME_LENGTH];
+			new sFlagAccess[1];
+			new sFlagImmunity[1];
+			new sFlagantiImmunity[1];
+			new sFlagWarn[1];
+			new sFlagWarnR[1];
+
+			while(!feof(hFile)) {
+				iLine++;
+				fgets(hFile, sBuffer, charsmax(sBuffer));
+				trim(sBuffer);
+
+				if(sBuffer[0] == EOS || sBuffer[0] == ';') continue;
+				
+				if(parse(sBuffer, 
+						sNameData, charsmax(sNameData),
+						sFlagAccess, charsmax(sFlagAccess),
+						sFlagImmunity, charsmax(sFlagImmunity),
+						sFlagantiImmunity, charsmax(sFlagantiImmunity),
+						sFlagWarn, charsmax(sFlagWarn),
+						sFlagWarnR, charsmax(sFlagWarnR)
+					) == 6) {
+					aAccessData[eName] = sNameData;
+					aAccessData[eAccess] = str_to_num(sFlagAccess);
+					aAccessData[eImmunity] = str_to_num(sFlagImmunity);
+					aAccessData[eAntiImmunity] = str_to_num(sFlagantiImmunity);
+					aAccessData[eWarn] = str_to_num(sFlagWarn);
+					aAccessData[eWarn] = str_to_num(sFlagWarnR);
+					ArrayPushArray(g_aAccess, aAccessData);
+				}
+				else {
+					log_amx("[ERROR] <user.ini> line %i", iLine);
+				}
+			}
+		}
+	}
+	else {
+		set_fail_state("[GrabAccess] File '%s' not found!", sPath);
+	}
+	new i = ArraySize(g_aAccess);
+	server_print("[GrabAccess] Load %d Grab Admin", i);
+}
+
+public cheack_access(iPlayer) {
+	new sName[MAX_NAME_LENGTH];
+	new aFlags[eFlagsAccess];
+	get_user_name(iPlayer, sName, charsmax(sName));
+
+	for(new i = 0; i < ArraySize(g_aAccess); i++) {
+		ArrayGetArray(g_aAccess, i, aFlags);
+		if(equal(aFlags[eName], sName)) {
+			for(new a = 0; a < eFlagsAccess - 1; a++) {
+				set_access(iPlayer, a, aFlags[a]);
+			}
+		}
+	}
+}
+
+public get_access(iPlayer, iFlag) {
+	return g_aPlayerData[iPlayer][iFlag];
+}
+
+public set_access(iPlayer, iFlag, iValue) {
+	g_aPlayerData[iPlayer][iFlag] = iValue;
 }
 
 stock traceline( const Float:vStart[3], const Float:vEnd[3], const pIgnore, Float:vHitPos[3] )
